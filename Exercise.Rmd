@@ -1,0 +1,208 @@
+---
+title: "Auth0_Exercise"
+author: "Amol Surve"
+date: "August 15, 2017"
+output: html_document
+
+# Exercise
+
+## Introduction
+Attached is a reduced set of data, consisting on various tables:
+
+*dataset_emails*: One row per email, represents an email of a person that signed up to Auth0 on https://auth0.com
+*dataset_pageviews*: One row per combination of url group and email, represents the # of visits of each email to a specific page group.
+*dataset_tenants*: One row per tenant, it's the account entity we use in Auth0 when you signup, other admins (emails) can be invited to the same tenant
+*dataset_relations*: One email can be associated with many tenants, and one tenant with many emails, so this is the relationship table that tells you which tenants are associated with which emails
+
+This is real data from all emails signed up on July, but without any PII involved.
+
+## Requirements
+
+You need to use R to solve this exercise, it's recommended to use R Studio to work on the solution.
+
+Recommended packages:
+* dplyr - General data wrangling
+* tidyr - Data reshaping
+* ggplot2 - One of the best charting libraries, very flexible
+
+To load the data, execute:
+load('exerciseData.rda')
+
+## Exercise
+
+We want to analyze our customer data, and better understand them.
+
+Please identify:
+
+* The top 10 countries by active enterprise users
+* The top 10 operating systems by open and total tickets
+* The distribution of pageviews per group
+* The distribution differences on pageviews per login method
+* What differences do you find between developers and non-developers?
+* What are the most and least used technologies in tenants?
+* Please mark any inconsistencies you find in the data that you'd research further if you were working at Auth0
+* Create at least 3 visualizations using R which you consider interesting for the provided data
+
+Please create an R script which can be re-executed for this exercise, and post any doubts you may have in Slack.
+Happy data wrangling!
+
+
+```{r}
+# Loading the libraries
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+load('exerciseData.rda')
+
+#calculate_percentage calculates the percentage value for every column value
+calculate_percentage <- function(dataframe){
+dataframe$Developer <- dataframe$Developer  / sum(dataframe$Developer)*100
+dataframe$`Non-Developer`  <- dataframe$`Non-Developer`   / sum(dataframe$`Non-Developer` )*100
+return(dataframe)
+}
+
+# Trim function using gsub() to remove all the leading and trailing whitespaces
+trim <- function (x) gsub("^\\s+|\\s+$", "", x)
+```
+
+---
+```{r}
+# Question 1
+# Dataframe of country and active enterprise users
+top10CountriesNew <- dataset_emails %>% left_join(dataset_relation, by ="email_id") %>% left_join(dataset_tenants,
+              by ="tenant_id") %>% select(country,active_enterprise_users_last_30d) %>%
+  mutate(active_enterprise_users_last_30d=ifelse(is.na(active_enterprise_users_last_30d),0,active_enterprise_users_last_30d)) %>% group_by(country) %>%summarise(Sum_of_active_enterprise_users=sum(active_enterprise_users_last_30d)) %>% arrange(desc(Sum_of_active_enterprise_users)) %>% filter(country!="") %>% top_n(10)
+data.frame(top10CountriesNew)
+
+
+# Question 2
+# Dataframe of operating systems, account open tickets and account total tickets
+# The top 10 operating systems by open and total tickets
+openTicketsTop10<-dataset_emails %>% left_join(dataset_relation, by ="email_id") %>% left_join(dataset_tenants,
+              by ="tenant_id") %>% select(sperating_system,account_open_tickets) %>% mutate(account_open_tickets = ifelse(is.na(account_open_tickets),0,account_open_tickets)) %>% group_by(sperating_system) %>%summarise(Sum_of_account_open_tickets=sum(account_open_tickets)) %>% arrange(desc(Sum_of_account_open_tickets)) %>% filter(sperating_system!="") %>% top_n(10)
+data.frame(openTicketsTop10)
+
+
+# Question 3
+# Distribution of Page Views per group
+# Joining the emails and pageViews table
+pageViewsPerGroup <- dataset_emails %>% left_join(dataset_pageviews, by ="email_id") %>% group_by(source_group,type_page) %>% summarise(views=sum(visits))
+data.frame(pageViewsPerGroup)
+
+# Question 4
+# Distribution Differences of Page Views per login method
+# Using Deplyr
+distributionDifferences <- dataset_emails %>% left_join(dataset_pageviews, by ="email_id") %>% select(login_method, type_page, visits) %>% group_by(login_method, type_page) %>% summarize(total_visits = sum(visits))
+
+# Question 5 
+
+# Filtering emails_dataset to have developers and non-developers separated withut considering blank roles
+role_df <- dataset_emails %>% filter(role!="") %>% mutate(Designation= ifelse(role %in% c("developer", "Software Developer", "Software Engineer III, Workforce Analytics"),"Developer","Non-Developer"))
+
+# Mean & Total page visits by developer and non developers
+role_page_visits <- role_df %>% left_join(dataset_pageviews,by="email_id") %>% mutate(visits = ifelse(is.na(visits),0,visits)) %>%
+group_by(Designation) %>% summarize(avg=mean(visits))
+role_page_visits <- spread(role_page_visits, Designation, avg)
+rownames(role_page_visits)<-"Page Visits"
+
+# Mean & Total "account_total_tickets" by developer vs non developer
+tickets_total <- role_df %>% left_join(dataset_relation, by="email_id") %>% left_join(dataset_tenants, by="tenant_id") %>% mutate(account_total_tickets = ifelse(is.na(account_total_tickets),0,account_total_tickets)) %>%
+group_by(Designation) %>% summarize(avg=mean(account_total_tickets))
+tickets_total <- spread(tickets_total, Designation, avg)
+rownames(tickets_total)<-"account_total_tickets"
+
+# Mean & Total "account_open_tickets" by developer vs non developer
+tickets_open <- role_df %>% left_join(dataset_relation, by="email_id") %>% left_join(dataset_tenants, by="tenant_id") %>% mutate(account_open_tickets = ifelse(is.na(account_open_tickets),0,account_open_tickets)) %>%
+group_by(Designation) %>% summarize(avg=mean(account_open_tickets))
+tickets_open <- spread(tickets_open, Designation, avg)
+rownames(tickets_open)<-"account_open_tickets"
+
+# Mean & Total Dashboard Sessions by developer vs non developer
+sessions_dashboard <- role_df %>% mutate(dashboard_sessions = ifelse(is.na(dashboard_sessions),0,dashboard_sessions)) %>%group_by(Designation) %>% summarize(avg=mean(dashboard_sessions))
+sessions_dashboard <- spread(sessions_dashboard, Designation, avg)
+rownames(sessions_dashboard)<-"Dashboard Sessions"
+
+# Mean & Total active users last 30 days for developers and non developers
+role_df_active_users_30d <- role_df %>% left_join(dataset_relation,by="email_id") %>%  left_join(dataset_tenants, by="tenant_id") %>%mutate(active_users_last_30d = ifelse(is.na(active_users_last_30d),0,active_users_last_30d)) %>%
+group_by(Designation) %>% summarize(avg=mean(active_users_last_30d))
+role_df_active_users_30d <- spread(role_df_active_users_30d, Designation, avg)
+rownames(role_df_active_users_30d)<-"active users last 30 days"
+
+# Mean & Total "total apps" for developers and non developers
+role_df_total_apps_tenants <- role_df %>% left_join(dataset_relation,by="email_id") %>%  left_join(dataset_tenants, by="tenant_id") %>%mutate(total_apps = ifelse(is.na(total_apps),0,total_apps)) %>%
+group_by(Designation) %>% summarize(avg=mean(total_apps))
+role_df_total_apps_tenants <- spread(role_df_total_apps_tenants, Designation, avg)
+rownames(role_df_total_apps_tenants)<-"total apps"
+
+
+# Joining role_df with tenants datframe using relations dataframe.
+role_df_tenants_combined<- role_df%>% left_join(dataset_relation,by="email_id") %>%  left_join(dataset_tenants, by="tenant_id")
+
+
+# Mean & Total "paid" for developers and non developers
+role_df_paid <- role_df_tenants_combined %>%mutate(paid = ifelse(is.na(paid),0,paid)) %>%
+group_by(Designation) %>% summarize(avg=mean(paid))
+	
+# Working with the Categorical variables
+
+# Login Method count differences between developer and non developer
+role_df_login <- role_df_tenants_combined %>%group_by(Designation, login_method) %>% summarise(count=n()) 
+role_df_login <- spread(role_df_login, Designation, count)%>%  top_n(5) 
+role_df_login <- calculate_percentage(role_df_login)
+
+# Source Group count differences between developer and non developer
+role_df_source_group <- role_df_tenants_combined %>%group_by(Designation, source_group) %>% summarise(count=n())
+role_df_source_group <- spread(role_df_source_group, Designation, count)%>%  top_n(5)  
+role_df_source_group <- calculate_percentage(role_df_source_group)
+
+# Operating System count differences between developer and non developer
+role_df_operating_system <- role_df_tenants_combined %>%group_by(Designation, sperating_system) %>% summarise(count=n())
+role_df_operating_system <- spread(role_df_operating_system, Designation, count)%>%  top_n(5)  
+role_df_operating_system <- calculate_percentage(role_df_operating_system)
+
+# Analyzing the technologies used by developers and non developers
+s <- strsplit(role_df_tenants_combined$technologies_used, split = ",")
+tenantsTechnologiesCombined <- data.frame(tenant_id = rep(role_df_tenants_combined$tenant_id, sapply(s, length)), technologies_used = unlist(s))
+tenantsTechnologiesCombined$technologies_used <- trim(tenantsTechnologiesCombined$technologies_used)
+tenantsTechnologiesCombined = as.data.frame(lapply(tenantsTechnologiesCombined, na.omit))
+technologies_ <- role_df_tenants_combined[,c("Designation", "tenant_id")] %>% left_join(tenantsTechnologiesCombined, by="tenant_id") %>% select(Designation, technologies_used) %>% group_by(Designation, technologies_used) %>% summarise(count=n())
+technologies_  <- spread(technologies_ , Designation, count)%>% na.omit()
+technologies_ <- calculate_percentage(technologies_)
+
+# Analyzing the connection types of developers and non developers
+s <- strsplit(role_df_tenants_combined$connection_types, split = ",")
+tenantsConnectionsCombined <- data.frame(tenant_id = rep(role_df_tenants_combined$tenant_id, sapply(s, length)), connection_types = unlist(s))
+tenantsConnectionsCombined$connection_types <- trim(tenantsConnectionsCombined$connection_types)
+tenantsConnectionsCombined = as.data.frame(lapply(tenantsConnectionsCombined, na.omit))
+connections_ <- role_df_tenants_combined[,c("Designation", "tenant_id")] %>% left_join(tenantsConnectionsCombined, by="tenant_id") %>% select(Designation, connection_types) %>% group_by(Designation, connection_types) %>% summarise(count=n())
+connections_  <- spread(connections_ , Designation, count)
+connections_ <- calculate_percentage(connections_)
+
+# Analyzing the features used by developers and non developers
+s <- strsplit(role_df_tenants_combined$used_features, split = ",")
+tenantsFeaturesCombined <- data.frame(tenant_id = rep(role_df_tenants_combined$tenant_id, sapply(s, length)), used_features = unlist(s))
+tenantsFeaturesCombined$used_features <- trim(tenantsFeaturesCombined$used_features)
+tenantsFeaturesCombined = as.data.frame(lapply(tenantsFeaturesCombined, na.omit))
+features_ <- role_df_tenants_combined[,c("Designation", "tenant_id")] %>% left_join(tenantsFeaturesCombined, by="tenant_id") %>% select(Designation, used_features) %>% group_by(Designation, used_features) %>% summarise(count=n())
+features_  <- spread(features_ , Designation, count)
+features_ <- calculate_percentage(features_)
+
+# Question 6
+# What are the most and least used technologies in tenants?
+s <- strsplit(dataset_tenants$technologies_used, split = ",")
+tenantsTechnologies <- data.frame(tenant_id = rep(dataset_tenants$tenant_id, sapply(s, length)), technologies_used = unlist(s))
+tenantsTechnologies$technologies_used <- trim(tenantsTechnologies$technologies_used)
+# Top Technologies used by tenants in decreasing order
+tenantTech <- data.frame(table(tenantsTechnologies$technologies_used))
+tenantTech <- tenantTech[order(tenantTech$Freq, decreasing=TRUE),]
+tenantTech <- head(tenantTech,10)	
+
+# Question 7 - Data Inconsistencies
+
+# Question 8 - Visualizations
+
+
+
+```
+
+
